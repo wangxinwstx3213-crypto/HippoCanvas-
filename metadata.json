@@ -1,0 +1,5 @@
+{
+  "name": "河马体画布",
+  "description": "一个可视化的设计画板，用于串联图片并使用 Gemini 3 Pro Image 模型生成创意资产。",
+  "requestFramePermissions": []
+}
