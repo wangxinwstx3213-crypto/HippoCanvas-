@@ -1,5 +1,5 @@
 {
   "base_url": "https://api.vectorengine.ai",
-  "api_key": "sk-Su2GtfkFxls0BKw7Xi4UfG5ycaxCHO1yBQWYRirPfDhFJmtP",
+  "api_key": "",
   "model": "gemini-2.5-flash-image-preview"
 }
