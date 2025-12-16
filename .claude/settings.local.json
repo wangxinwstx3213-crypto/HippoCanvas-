@@ -7,7 +7,21 @@
       "Bash(node:*)",
       "Bash(ls:*)",
       "Bash(git init:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git config:*)",
+      "Bash(git remote add:*)",
+      "Bash(git push:*)",
+      "Bash(git remote remove:*)",
+      "Bash(git clone:*)",
+      "Bash(rm:*)",
+      "Bash(git log:*)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(git ls-remote:*)",
+      "Bash(npm run build)",
+      "Bash(curl:*)",
+      "Bash(findstr:*)"
     ],
     "deny": [],
     "ask": []

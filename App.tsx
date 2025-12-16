@@ -1,12 +1,18 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Node, Connection, Position, NodeType, Annotation, Layer, LogEntry, SystemSettings } from './types';
+import { Node, Connection, Position, NodeType, Annotation, Layer, SystemSettings } from './types';
 import { NodeComponent } from './components/NodeComponent';
 import { ConnectionLine } from './components/ConnectionLine';
 import { generateImageWithGemini } from './services/geminiService';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { AuthModal } from './components/auth/AuthModal';
+import { UserInfo } from './components/auth/UserInfo';
+import { APIKeyConfig } from './components/auth/APIKeyConfig';
 import { NODE_WIDTH_UPLOAD, NODE_WIDTH_GEN } from './constants';
-import { Plus, MousePointer2, Image as ImageIcon, Sparkles, Zap, Github, Info, Download, Edit2, Check, X, HelpCircle, Terminal, ChevronDown, ChevronRight, Activity, Settings, Save, Plug2, Key, Sun, Moon, ZoomIn, ZoomOut } from 'lucide-react';
+import { Plus, MousePointer2, Image as ImageIcon, Sparkles, Zap, Github, Info, Download, Edit2, Check, X, HelpCircle, ChevronDown, Plug2, Sun, Moon, ZoomIn, ZoomOut, LogIn } from 'lucide-react';
 
-const App: React.FC = () => {
+const AppContent: React.FC = () => {
+  const { user, loading } = useAuth();
+
   // Theme State
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
@@ -18,18 +24,12 @@ const App: React.FC = () => {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null); // New: Track selected connection
   const [previewImage, setPreviewImage] = useState<string | null>(null);
-  
-  // System Log State
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [isLogOpen, setIsLogOpen] = useState(false);
-  const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set());
 
-  // Settings State
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [systemSettings, setSystemSettings] = useState<SystemSettings>({
+  // Default system settings
+  const systemSettings: SystemSettings = {
     baseUrl: 'https://api.vectorengine.ai',
     modelName: 'gemini-2.5-flash-image-preview'
-  });
+  };
 
   // Help Panel State
   const [isHelpOpen, setIsHelpOpen] = useState(false);
@@ -40,10 +40,40 @@ const App: React.FC = () => {
 - 连线点亮表示连接成功。
 - 点击连线可选中，按 Delete 键断开连接。
 - 在图片上添加标注，并在生成器图层中引用。`);
-  
+
+  // Auth Modal State
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+
+  // API Key Config State
+  const [isAPIKeyConfigOpen, setIsAPIKeyConfigOpen] = useState(false);
+
   // Global counter for node numbering (e.g., Image 1, Image 2)
   const nodeCounter = useRef(1);
   const rAFRef = useRef<number>(); // Ref for requestAnimationFrame
+
+  // Check if user has configured API key
+  useEffect(() => {
+    if (user && !loading) {
+      checkUserAPIKey(user.id);
+    }
+  }, [user, loading]);
+
+  const checkUserAPIKey = async (userId: string) => {
+    try {
+      const { userApiService } = await import('./services/userApiService');
+      const hasKey = await userApiService.getVectorEngineKey(userId);
+
+      // If user doesn't have API key configured, show config modal
+      if (!hasKey) {
+        setTimeout(() => {
+          setIsAPIKeyConfigOpen(true);
+        }, 1000); // Wait 1 second after login to show config
+      }
+    } catch (error) {
+      console.error('检查用户API密钥失败:', error);
+    }
+  };
   
   // Interaction State
   const [dragState, setDragState] = useState<{
@@ -85,23 +115,7 @@ const App: React.FC = () => {
     }
   };
 
-  // Load Settings from LocalStorage on mount
-  useEffect(() => {
-    const savedSettings = localStorage.getItem('lovart_settings');
-    if (savedSettings) {
-      try {
-        const parsed = JSON.parse(savedSettings);
-        const cleanSettings: SystemSettings = {
-           baseUrl: parsed.baseUrl || '',
-           modelName: parsed.modelName || 'gemini-3-pro-image-preview'
-        };
-        setSystemSettings(cleanSettings);
-      } catch (e) {
-        console.error("Failed to parse settings", e);
-      }
-    }
-  }, []);
-
+  
   // Global Keydown Listener for Deletion
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -124,41 +138,7 @@ const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedNodeId, selectedConnectionId]);
 
-  // Save Settings
-  const handleSaveSettings = () => {
-    localStorage.setItem('lovart_settings', JSON.stringify(systemSettings));
-    setIsSettingsOpen(false);
-  };
-
-  // Helper: Add Log
-  const addLog = (type: LogEntry['type'], nodeId: string, summary: string, data: any) => {
-    const newLog: LogEntry = {
-      id: crypto.randomUUID(),
-      timestamp: Date.now(),
-      type,
-      nodeId,
-      summary,
-      data
-    };
-    setLogs(prev => [newLog, ...prev]);
-    setExpandedLogIds(prev => {
-       const next = new Set(prev);
-       next.add(newLog.id);
-       return next;
-    });
-  };
-
-  const toggleLogExpand = (id: string) => {
-    setExpandedLogIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const clearLogs = () => setLogs([]);
-
+  
   // Helper: Screen to World coordinates
   const screenToWorld = useCallback((screenX: number, screenY: number) => {
     if (!canvasRef.current) return { x: 0, y: 0 };
@@ -374,7 +354,6 @@ const App: React.FC = () => {
     sourceNodes.sort((a, b) => a.data.displayId - b.data.displayId);
 
     updateNodeData(nodeId, { status: 'loading', generatedImage: undefined, generatedImages: undefined });
-    setIsLogOpen(true);
 
     try {
       const referenceImages: string[] = [];
@@ -408,17 +387,11 @@ const App: React.FC = () => {
       }
       
       const requestedCount = targetNode.data.numberOfImages || 1;
-      
-      addLog('request', nodeId, '发送生成请求', {
-        prompt: finalPrompt,
-        aspectRatio: targetNode.data.aspectRatio,
-        imageResolution: targetNode.data.imageResolution,
-        numberOfImages: requestedCount,
-        imageCount: referenceImages.length,
-        images: referenceImages.map(img => img.substring(0, 50) + '...[truncated]'),
-        model: targetNode.data.model || systemSettings.modelName,
-        baseUrl: systemSettings.baseUrl || 'Default'
-      });
+
+      // 确保用户已登录
+      if (!user) {
+        throw new Error("用户未登录，无法生成图像。请先登录。");
+      }
 
       const resultImages = await generateImageWithGemini(
         {
@@ -431,14 +404,9 @@ const App: React.FC = () => {
         {
           ...systemSettings,
           modelName: targetNode.data.model || systemSettings.modelName
-        }
+        },
+        user.id // 传递用户ID
       );
-      
-      addLog('response', nodeId, '收到生成结果', {
-        success: true,
-        imageLength: resultImages.length,
-        firstImagePreview: resultImages[0]?.substring(0, 50) + '...[truncated]',
-      });
 
       updateNodeData(nodeId, { 
         status: 'success', 
@@ -448,10 +416,6 @@ const App: React.FC = () => {
       });
     } catch (error: any) {
       console.error(error);
-      addLog('error', nodeId, '生成失败', {
-        message: error.message,
-        stack: error.stack
-      });
       updateNodeData(nodeId, { status: 'error' });
       alert(`生成图片失败: ${error.message} \n请检查是否选择了正确的项目 (API Key)。`);
     }
@@ -657,22 +621,35 @@ const App: React.FC = () => {
           
           <div className="h-6 w-px bg-border"></div>
 
-          <button 
-            className="p-2 text-txt-muted hover:text-txt-main transition-colors" 
+          {/* Auth Section */}
+          {loading ? (
+            <div className="w-8 h-8 rounded-full bg-gray-300 dark:bg-gray-600 animate-pulse"></div>
+          ) : user ? (
+            <UserInfo onOpenAPIKeyConfig={() => setIsAPIKeyConfigOpen(true)} />
+          ) : (
+            <button
+              onClick={() => {
+                setAuthMode('login');
+                setIsAuthModalOpen(true);
+              }}
+              className="flex items-center gap-2 px-3 py-2 bg-primary hover:bg-primary-hover text-white rounded-md transition-colors text-sm font-medium"
+              title="登录"
+            >
+              <LogIn size={16} />
+              <span className="hidden sm:inline">登录</span>
+            </button>
+          )}
+
+          <div className="h-6 w-px bg-border"></div>
+
+          <button
+            className="p-2 text-txt-muted hover:text-txt-main transition-colors"
             title={theme === 'dark' ? '切换亮色模式' : '切换暗色模式'}
             onClick={toggleTheme}
           >
             {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
           </button>
 
-          <button 
-            className="p-2 text-txt-muted hover:text-txt-main transition-colors" 
-            title="System Settings"
-            onClick={() => setIsSettingsOpen(true)}
-          >
-            <Settings size={20} />
-          </button>
-          
           <button className="p-2 text-txt-muted hover:text-txt-main transition-colors" title="Github">
             <Github size={20} />
           </button>
@@ -746,88 +723,7 @@ const App: React.FC = () => {
           })}
         </div>
 
-        {/* System Logs Console (Bottom Left) */}
-        <div 
-          className={`absolute bottom-6 left-6 flex flex-col bg-panel/95 backdrop-blur border border-border rounded-lg shadow-xl transition-all duration-300 ease-in-out z-50 overflow-hidden ${
-             isLogOpen ? 'w-96 h-80' : 'w-10 h-10 rounded-full hover:scale-110 cursor-pointer'
-          }`}
-          onClick={(e) => {
-             if (!isLogOpen) {
-                setIsLogOpen(true);
-                e.stopPropagation();
-             }
-           }}
-        >
-           {/* Log Header */}
-           <div className={`flex items-center ${isLogOpen ? 'justify-between px-3 py-2 border-b border-border bg-bg-input/50' : 'justify-center h-full w-full'}`}>
-              {isLogOpen ? (
-                 <>
-                   <div className="flex items-center gap-2 text-sm font-semibold text-txt-muted">
-                      <Terminal size={16} />
-                      <span>系统日志 / 数据流</span>
-                   </div>
-                   <div className="flex items-center gap-2">
-                      <button 
-                         onClick={(e) => { e.stopPropagation(); clearLogs(); }}
-                         className="text-[10px] px-2 py-0.5 bg-bg-hover hover:bg-primary hover:text-white rounded text-txt-muted border border-border"
-                      >
-                         清空
-                      </button>
-                      <button
-                         onClick={(e) => { e.stopPropagation(); setIsLogOpen(false); }}
-                         className="text-txt-muted hover:text-txt-main"
-                      >
-                         <X size={14} />
-                      </button>
-                   </div>
-                 </>
-              ) : (
-                 <Terminal size={20} className="text-txt-muted" />
-              )}
-           </div>
-
-           {/* Log Content */}
-           {isLogOpen && (
-              <div className="flex-1 overflow-y-auto p-2 space-y-2 bg-bg-input font-mono text-xs" onMouseDown={e => e.stopPropagation()}>
-                 {logs.length === 0 && (
-                    <div className="text-txt-muted text-center mt-10 flex flex-col items-center gap-2">
-                       <Activity size={24} className="opacity-50" />
-                       <p>暂无数据交互记录</p>
-                    </div>
-                 )}
-                 {logs.map(log => {
-                    const isExpanded = expandedLogIds.has(log.id);
-                    const nodeDisplay = nodes.find(n => n.id === log.nodeId)?.data.displayId || '?';
-                    
-                    let typeColor = 'text-txt-muted';
-                    if (log.type === 'request') typeColor = 'text-blue-400';
-                    if (log.type === 'response') typeColor = 'text-green-400';
-                    if (log.type === 'error') typeColor = 'text-red-400';
-
-                    return (
-                       <div key={log.id} className="border border-border rounded bg-panel overflow-hidden">
-                          <div 
-                             className="flex items-center gap-2 p-2 cursor-pointer hover:bg-bg-hover transition-colors"
-                             onClick={() => toggleLogExpand(log.id)}
-                          >
-                             {isExpanded ? <ChevronDown size={12} className="text-txt-muted" /> : <ChevronRight size={12} className="text-txt-muted" />}
-                             <span className="text-txt-muted text-[10px]">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                             <span className={`font-bold ${typeColor} uppercase text-[10px]`}>{log.type}</span>
-                             <span className="text-txt-main flex-1 truncate ml-1">{log.summary}</span>
-                             <span className="text-txt-muted text-[9px] border border-border px-1 rounded">图{nodeDisplay}</span>
-                          </div>
-                          {isExpanded && (
-                             <div className="p-2 border-t border-border bg-bg-input/50 overflow-x-auto">
-                                <pre className="text-txt-muted whitespace-pre-wrap break-all">{JSON.stringify(log.data, null, 2)}</pre>
-                             </div>
-                          )}
-                       </div>
-                    );
-                 })}
-              </div>
-           )}
-        </div>
-
+  
         {/* Floating Help/Stats - Collapsible & Editable */}
         <div 
            className={`absolute bottom-6 right-6 bg-panel/95 backdrop-blur border border-border rounded-lg shadow-xl transition-all duration-300 ease-in-out overflow-hidden flex flex-col z-50 ${
@@ -931,89 +827,29 @@ const App: React.FC = () => {
            </div>
         )}
 
-        {/* Settings Modal */}
-        {isSettingsOpen && (
-           <div 
-              className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center animate-in fade-in duration-200"
-              onClick={() => setIsSettingsOpen(false)}
-           >
-              <div 
-                 className="bg-panel w-96 rounded-xl border border-border shadow-2xl p-6 animate-in zoom-in-95 duration-200"
-                 onClick={e => e.stopPropagation()}
-              >
-                 <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-bold flex items-center gap-2 text-txt-main">
-                       <Settings size={20} className="text-primary" />
-                       系统配置
-                    </h2>
-                    <button 
-                       onClick={() => setIsSettingsOpen(false)}
-                       className="text-txt-muted hover:text-txt-main transition-colors"
-                    >
-                       <X size={20} />
-                    </button>
-                 </div>
-                 
-                 <div className="space-y-4">
-                    {/* API Key Section */}
-                    <div className="flex flex-col gap-1.5">
-                       <label className="text-xs font-semibold text-txt-muted flex items-center gap-1">
-                          <Key size={12} />
-                          Google API Key
-                       </label>
-                       <button
-                          onClick={() => (window as any).aistudio?.openSelectKey()}
-                          className="w-full bg-bg-input border border-border hover:border-primary hover:text-txt-main text-txt-muted rounded px-3 py-2 text-sm transition-colors text-left flex items-center justify-between group shadow-sm"
-                       >
-                          <span className="font-mono">选择/切换 API Key</span>
-                          <ChevronRight size={14} className="text-txt-muted group-hover:text-txt-main transition-colors" />
-                       </button>
-                       <span className="text-[10px] text-txt-muted">
-                          安全调用 Google AI Studio 面板来管理您的密钥。
-                       </span>
-                    </div>
+        
+        {/* Auth Modal */}
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+          initialMode={authMode}
+        />
 
-                    <div className="h-px bg-border my-2"></div>
-
-                    <div className="flex flex-col gap-1.5">
-                       <label className="text-xs font-semibold text-txt-muted">Model Name (模型名称)</label>
-                       <input 
-                          type="text" 
-                          className="bg-bg-input border border-border rounded px-3 py-2 text-sm text-txt-main focus:outline-none focus:border-primary transition-colors"
-                          placeholder="e.g. gemini-3-pro-image-preview"
-                          value={systemSettings.modelName}
-                          onChange={e => setSystemSettings({...systemSettings, modelName: e.target.value})}
-                       />
-                       <span className="text-[10px] text-txt-muted">默认为 gemini-3-pro-image-preview</span>
-                    </div>
-
-                    <div className="flex flex-col gap-1.5">
-                       <label className="text-xs font-semibold text-txt-muted">Base URL (API 地址)</label>
-                       <input 
-                          type="text" 
-                          className="bg-bg-input border border-border rounded px-3 py-2 text-sm text-txt-main focus:outline-none focus:border-primary transition-colors"
-                          placeholder="https://generativelanguage.googleapis.com"
-                          value={systemSettings.baseUrl}
-                          onChange={e => setSystemSettings({...systemSettings, baseUrl: e.target.value})}
-                       />
-                       <span className="text-[10px] text-txt-muted">用于调用第三方代理或自定义端点</span>
-                    </div>
-                 </div>
-
-                 <div className="mt-6 flex justify-end">
-                    <button 
-                       onClick={handleSaveSettings}
-                       className="flex items-center gap-2 bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-md text-sm font-medium transition-colors shadow-lg shadow-indigo-500/20"
-                    >
-                       <Save size={16} />
-                       保存配置
-                    </button>
-                 </div>
-              </div>
-           </div>
-        )}
+        {/* API Key Config Modal */}
+        <APIKeyConfig
+          isOpen={isAPIKeyConfigOpen}
+          onClose={() => setIsAPIKeyConfigOpen(false)}
+        />
       </div>
     </div>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 };
 

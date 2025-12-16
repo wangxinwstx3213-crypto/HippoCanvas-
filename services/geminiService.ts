@@ -1,4 +1,6 @@
 import { SystemSettings } from "../types";
+import { supabase } from './supabaseService';
+import { userApiService } from './userApiService';
 
 interface GenerateImageOptions {
   prompt: string;
@@ -10,12 +12,61 @@ interface GenerateImageOptions {
 
 export const generateImageWithGemini = async (
   options: GenerateImageOptions,
-  settings: SystemSettings
+  settings: SystemSettings,
+  userId?: string
 ): Promise<string[]> => {
 
-  // 使用 GMAPI 配置的 API Key 和 Base URL
-  const apiKey = process.env.GEMINI_API_KEY || process.env.VECTOR_ENGINE_API_KEY;
-  const baseUrl = settings.baseUrl || process.env.VECTOR_ENGINE_BASE_URL || 'https://api.vectorengine.ai';
+  // 确定用户ID
+  let targetUserId = userId;
+
+  // 如果没有传入userId，尝试从Supabase获取
+  if (!targetUserId) {
+    console.log('未传入userId，尝试从认证状态获取用户信息');
+
+    let user = null;
+    let retryCount = 0;
+    const maxRetries = 3;
+
+    while (retryCount < maxRetries && !user) {
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      user = currentUser;
+
+      if (!user) {
+        console.log(`尝试获取用户信息，第 ${retryCount + 1} 次`);
+        await new Promise(resolve => setTimeout(resolve, 100));
+        retryCount++;
+      }
+    }
+
+    if (!user) {
+      // 如果仍然无法获取用户，尝试从session获取
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        user = session.user;
+        console.log('从session获取到用户信息');
+      }
+    }
+
+    if (!user) {
+      console.error('无法获取用户信息，检查认证状态');
+      throw new Error("用户未登录，请先登录后再使用图像生成功能。");
+    }
+
+    targetUserId = user.id;
+    console.log('获取到用户信息:', user.email, 'ID:', targetUserId);
+  }
+
+  console.log('使用用户ID:', targetUserId);
+
+  // 获取用户的Vector Engine API密钥
+  const userApiKey = await userApiService.getVectorEngineKey(targetUserId);
+  if (!userApiKey) {
+    throw new Error("未配置API密钥，请先在用户菜单中配置您的Vector Engine API密钥。");
+  }
+
+  // 使用用户的API密钥
+  const apiKey = userApiKey;
+  const baseUrl = settings.baseUrl || 'https://api.vectorengine.ai';
 
   if (!apiKey) {
     throw new Error("API Key is missing. Please ensure you have configured an API key.");

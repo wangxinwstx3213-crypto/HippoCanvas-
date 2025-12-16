@@ -66,14 +66,6 @@ export interface CanvasState {
   offset: Position;
 }
 
-export interface LogEntry {
-  id: string;
-  timestamp: number;
-  type: 'request' | 'response' | 'error';
-  nodeId: string;
-  summary: string;
-  data: any;
-}
 
 export interface SystemSettings {
   baseUrl: string;

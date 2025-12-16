@@ -14,7 +14,9 @@ export default defineConfig(({ mode }) => {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY || env.VECTOR_ENGINE_API_KEY),
         'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || env.VECTOR_ENGINE_API_KEY),
         'process.env.VECTOR_ENGINE_API_KEY': JSON.stringify(env.VECTOR_ENGINE_API_KEY),
-        'process.env.VECTOR_ENGINE_BASE_URL': JSON.stringify(env.VECTOR_ENGINE_BASE_URL)
+        'process.env.VECTOR_ENGINE_BASE_URL': JSON.stringify(env.VECTOR_ENGINE_BASE_URL),
+        'process.env.NEXT_PUBLIC_SUPABASE_URL': JSON.stringify(env.NEXT_PUBLIC_SUPABASE_URL),
+        'process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY': JSON.stringify(env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
       },
       resolve: {
         alias: {
